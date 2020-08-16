@@ -2,42 +2,191 @@
 #include <fstream>
 #include <cmath>
 #include <stdio.h>
+#include <stdlib.h>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_odeiv2.h>
+#include <time.h>
+#include <math.h>
 
 using namespace std;
 
 #define DIM 37
 
-ifstream fin("hexagon37.txt");
-ofstream fout("hexagon37echilibru.txt");
+
+ifstream fin("hexagon37.dat");
+ofstream fout1("nHS.txt");
+ofstream fout2("configuratie_initiala.txt");
+//adaug apoi fisiere pentru configuratii intermediare
+
 
 int vecin[DIM][6];
 double sol[4 * DIM];
 double prev_pos[4 * DIM];
-double L = 0.6;
+
 double r[DIM];
-double k = 1;
+bool verificat[DIM];
 
 double x, y;
 
+double nHS;
+int timp;
+int verif;
+
+
+void reading();
 int func(double t, const double sol[], double f[], void* params);
 int jac(double t, const double y[], double* dfdy, double dfdt[], void* params);
 bool ajuns_la_echilibru();
+double random_number();
 
+void sistem_in_echilibru();
+
+void clearverificate();
+
+double calculnHS();
+double probabilityHS_LS(int dot);
+double probabilityLS_HS(int dot);
+
+double subunitar;
+
+double t = 0.0, t1 = 100.0;
+bool ech = 0;
+int count = 0;
+
+double tau = 2;
+double D = 1000;
+double dS = 20;
+double T = 50;
+double Ea = 400;
+double L = 0.6;
+double mu = 10;
+double k_elastic = 1450;
+
+int total_time = 100000;
 
 int main(void)
 {
-	double mu = 10;
+	srand(time(0));
 
-	gsl_odeiv2_system sys = { func, jac, 4 * DIM, &mu };
-	gsl_odeiv2_driver* d = gsl_odeiv2_driver_alloc_y_new(&sys, gsl_odeiv2_step_rk8pd, 1e-6, 1e-6, 0.0);
+	int dot = 0;
+	double P;
 
-	int i;
-	int j;
 
-	for (i = 0; i < DIM; i++)
+	reading();
+
+	for (int i = 0; i < DIM; i++)
+	{
+		r[i] = 0.22;
+		sol[4 * i] *= 1.04;
+		sol[4 * i + 2] *= 1.04;
+	}
+
+	for (int i = 0; i < DIM; i++)
+	{
+		fout2 << sol[4 * i] << ' ' << sol[4 * i + 2] << '\n';
+	}
+
+	double NHS = DIM;
+
+	for (timp = 1; timp <= total_time; timp++)
+	{
+		nHS = NHS/DIM;
+		fout1 << timp << ' ' << nHS << '\n';
+		cout << timp << ' ' << nHS << '\n';
+		if (nHS == 0)
+			exit(0);
+		while (verif < DIM)
+		{
+			dot = rand() % DIM;
+			if (verificat[dot] == 1)
+				continue;
+			verif++;
+			verificat[dot] = 1;
+			subunitar = random_number();
+
+			if (r[dot] < 0.21)
+			{
+				P = probabilityLS_HS(dot);
+				//cout << P << '\n';
+
+				if (subunitar < P)
+				{
+					r[dot] = 0.22;
+					NHS++;
+				}
+			}
+			else
+			{
+				P = probabilityHS_LS(dot);
+				//cout << P << '\n';
+
+				if (subunitar < P)
+				{
+					r[dot] = 0.20;
+					NHS--;
+				}
+			}
+		}
+		sistem_in_echilibru();
+		clearverificate();
+	}
+	sistem_in_echilibru();
+
+	fin.close();
+	return 0;
+}
+
+double probabilityHS_LS(int dot)
+{
+	double P = 0;
+	double sum_delta = 0;
+	int neigh;
+	int part = 4 * dot;
+	double radical;
+	double elongation;
+
+	for (int j = 0; j < 6; j++)
+	{
+		if (vecin[dot][j] < 0)
+			continue;
+		neigh = vecin[dot][j] * 4;
+		radical = sqrt((sol[neigh] - sol[part]) * (sol[neigh] - sol[part]) + (sol[neigh + 2] - sol[part + 2]) * (sol[neigh + 2] - sol[part + 2]));
+		elongation = radical - r[dot] - r[vecin[dot][j]] - L;
+		if (radical == 1.04 && r[vecin[dot][j]] == 0.22)
+			elongation = 0;
+		sum_delta += elongation;
+	}
+
+	P = 1 / tau * exp((D - T * dS) / (2 * T)) * exp(-((Ea + k_elastic * sum_delta) / T));
+	return P;
+}
+
+double probabilityLS_HS(int dot)
+{
+	double P = 0;
+	double sum_delta = 0;
+	int neigh;
+	int part = 4 * dot;
+	double radical;
+	double elongation;
+	for (int j = 0; j < 6; j++)
+	{
+		if (vecin[dot][j] < 0)
+			continue;
+		neigh = vecin[dot][j] * 4;
+		radical = sqrt((sol[neigh] - sol[part]) * (sol[neigh] - sol[part]) + (sol[neigh + 2] - sol[part + 2]) * (sol[neigh + 2] - sol[part + 2]));
+		elongation = radical - r[dot] - r[vecin[dot][j]] - L;
+		sum_delta += elongation;
+	}
+
+	P = 1 / tau * exp(-((D - T * dS) / (2 * T))) * exp(-((Ea - k_elastic * sum_delta) / (T)));
+	return P;
+}
+
+void reading()
+{
+	for (int i = 0; i < DIM; i++)
 	{
 		fin >> sol[4 * i] >> sol[4 * i + 2];
 		for (int j = 0; j < 6; j++)
@@ -47,19 +196,62 @@ int main(void)
 		}
 		sol[4 * i + 1] = 0;
 		sol[4 * i + 3] = 0;
-		r[i] = 0.2;
+		r[i] = 0.20;
 	}
+}
 
+double calculnHS()
+{
+	double nHS = 0;
+	for (int i = 0; i < DIM; i++)
+		if (r[i] == 0.22)
+			nHS += 1;
+	nHS = (double)nHS / DIM;
+	return nHS;
+}
+
+double random_number()
+{
+	int a, b;
+	double rez = 0;
+	a = rand();
+	b = rand();
+	if (a < b)
+	{
+		rez = (double)a / b;
+	}
+	else
+		rez = (double)b / a;
+	return rez;
+}
+
+void clearverificate()
+{
+	int i;
+	verif = 0;
 	for (i = 0; i < DIM; i++)
-		fout << sol[4 * i] << ' ' << sol[4 * i + 2] << '\n';
+		verificat[i] = 0;
+}
 
-	//molecula de index 18 va trece in HS - are coordonatele (0, 0), deci e centrala
-	r[18] = 0.22;
+bool ajuns_la_echilibru()
+{
+	int i;
+	double diffx, diffy;
+	for (i = 0; i < DIM; i++)
+	{
+		diffx = prev_pos[i * 4] - sol[4 * i];
+		diffy = prev_pos[i * 4 + 2] - sol[4 * i + 2];
+		if (abs(diffx) > 1e-4 || abs(diffy) > 1e-4)
+			return 0;
+	}
+	return 1;
+}
 
-	double t = 0.0, t1 = 100.0;
-	bool ech = 0;
+void sistem_in_echilibru()
+{
+	gsl_odeiv2_system sys = { func, jac, 4 * DIM, &mu };
+	gsl_odeiv2_driver* d = gsl_odeiv2_driver_alloc_y_new(&sys, gsl_odeiv2_step_rk8pd, 1e-6, 1e-6, 0.0);
 	int count = 0;
-
 	while (ech == 0)
 	{
 		for (int j = 0; j < DIM; j += 1)
@@ -76,38 +268,10 @@ int main(void)
 			printf("error, return value=%d\n", status);
 			break;
 		}
-
 		ech = ajuns_la_echilibru();
-
-		//afisare
-		fout << "\n\n\n\nConfiguratia nr: " << count << "\n\n\n\n";
-		for (j = 0; j < DIM; j++)
-			fout << sol[4 * j] << ' ' << sol[4 * j + 2] << '\n';
-
 	}
-	fout << "\n\n\n\nConfiguratia stabila:\n\n\n\n";
-	for (i = 0; i < DIM; i++)
-		fout << sol[4 * i] << ' ' << sol[4 * i + 2] << '\n';
 	gsl_odeiv2_driver_free(d);
-	fout.close();
-	fin.close();
-	return 0;
 }
-
-bool ajuns_la_echilibru()
-{
-	int i;
-	double diffx, diffy;
-	for (i = 0; i < DIM; i++)
-	{
-		diffx = prev_pos[i * 4] - sol[4 * i];
-		diffy = prev_pos[i * 4 + 2] - sol[4 * i + 2];
-		if (abs(diffx) > 0.01 || abs(diffy) > 0.01)
-			return 0;
-	}
-	return 1;
-}
-
 
 int func(double t, const double sol[], double f[], void* params)
 {
@@ -127,14 +291,11 @@ int func(double t, const double sol[], double f[], void* params)
 				continue;
 			else
 			{
-				radical = sqrt((sol[neigh] - sol[part]) * (sol[neigh] - sol[part]) + (sol[neigh+2] - sol[part+2]) * (sol[neigh+2] - sol[part+2]));
+				radical = sqrt((sol[neigh] - sol[part]) * (sol[neigh] - sol[part]) + (sol[neigh + 2] - sol[part + 2]) * (sol[neigh + 2] - sol[part + 2]));
 
-				Fe = k * (radical - r[i] - r[vecin[i][j]] - L);
-				//L=lungimea resortului relaxat=0.6
-				//r=0.2 in LS
-				//r=0.22 in HS
+				Fe = k_elastic * (radical - r[i] - r[vecin[i][j]] - L);
 				Fex += Fe * (sol[neigh] - sol[part]) / radical;
-				Fey += Fe * (sol[neigh+2] - sol[part+2]) / radical;
+				Fey += Fe * (sol[neigh + 2] - sol[part + 2]) / radical;
 			}
 		}
 
