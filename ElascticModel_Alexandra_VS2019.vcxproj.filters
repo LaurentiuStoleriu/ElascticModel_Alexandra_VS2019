@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="ElascticModel_Alexandra_VS2019.cpp">
+    <ClCompile Include="ElascticModel_Alexandra_VS2019_decembrie.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
